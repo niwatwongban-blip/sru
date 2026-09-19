@@ -1,10 +1,5 @@
-/* ================= data ================= */
-// ใส่รูปตึกของคุณเอง: สร้างโฟลเดอร์ images/buildings/ แล้ววางไฟล์ชื่อ "<id>.jpg" ตรงกับเลข id ของแต่ละอาคารด้านล่าง
-// เช่น อาคาร id 1 (หอสมุดฯ) -> images/buildings/1.jpg
-// ถ้ายังไม่มีรูปสำหรับอาคารไหน ระบบจะโชว์ไอคอนวาดแทนให้อัตโนมัติ ไม่ต้องแก้โค้ดเพิ่ม
 
-const CENTER = [9.0280, 99.3190]; // มหาวิทยาลัยราชภัฏสุราษฎร์ธานี ต.ขุนทะเล (ค่าประมาณ)
-
+const CENTER = [9.0280, 99.3190];
 
 const RAW = [
   [1,  "หอสมุดและศูนย์สารสนเทศ",                                  "office",  "flat",  9.083845, 99.360601],
@@ -17,7 +12,7 @@ const RAW = [
   [9,  "อาคารทีปังกรรัศมีโชติ",                                    "faculty", "stepped",9.083018, 99.365572],
   [10, "โรงเรียนสาธิตแห่งมหาวิทยาลัยราชภัฏสุราษฎร์ธานี (Satit SRU)",     "faculty", "gable", 9.083050, 99.362720],
   [11, "อาคารสำนักงานอธิการบดี",                                   "office",  "flat",  9.078017, 99.362681],
-  [12, "วิทยาลัยนานาชาติและการท่องเที่ยว",                          "faculty", "stepped",9.082355, 99.363679], //แก้หลังจากอันนี้
+  [12, "วิทยาลัยนานาชาติและการท่องเที่ยว",                          "faculty", "stepped",9.082355, 99.363679],
   [13, "คณะพยาบาลศาสตร์ ",                          "faculty", "gable", 9.080435, 99.363422],
   [14, "คณะนิติศาสตร์",                                           "faculty", "flat",  9.079536, 99.362697],
   [15, "อาคาร 80 พรรษา",                                          "faculty", "gable", 9.078316, 99.363618],
@@ -39,9 +34,14 @@ const RAW = [
   [41, "อาคารพัสดุ (เก่า)",                                        "office",  "flat", 9.084024, 99.362183],
 ];
 
+const CAPACITY_BASE = { faculty:70, office:36, hall:110, sport:55, dorm:48, other:26 };
+
 const buildings = RAW.map(([id,name,type,roof,lat,lng])=>({
   id, name, type, roof, lat, lng,
-  lot: "ลานจอดรถ " + name.replace(/\s*🏋️\s*/,'')
+  lot: "ลานจอดรถ " + name.replace(/\s*🏋️\s*/,''),
+
+  accessType: type==='office' ? 'staff' : 'general',
+  accessibleSlots: 2 + (id % 3), 
 }));
 
 const TYPE_META = {
@@ -53,8 +53,56 @@ const TYPE_META = {
   other:  { label:"อื่นๆ",        color:"#8A7B68" },
 };
 
+const STATUS_META = {
+  ok:     { label:"ว่างมาก",     color:"#2E9E5B" },
+  warn:   { label:"ใกล้เต็ม",    color:"#D98F26" },
+  full:   { label:"เต็ม",        color:"#C62828" },
+  closed: { label:"ปิดปรับปรุง", color:"#8A93A0" },
+};
 
 document.getElementById('statTotal').textContent = buildings.length;
+
+/* ================= mock live occupancy =================
+   ไม่มีเซ็นเซอร์จริง ระบบจึงจำลองความหนาแน่นของแต่ละลานจอดแบบ deterministic
+   (สุ่มแบบมี seed) เพื่อสาธิต UI เท่านั้น — เมื่อมีข้อมูลจริงจาก API ให้แทนที่
+   ฟังก์ชัน computeOccupancy() ด้วยการเรียก API แทน */
+let simEpoch = 0; // เพิ่มค่านี้ทุกครั้งที่กด "อัปเดตข้อมูล" เพื่อสุ่มค่าตำแหน่งใหม่
+
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function computeOccupancy(b){
+  const total = Math.round(CAPACITY_BASE[b.type] * (0.75 + mulberry32(b.id * 7 + 1)() * 0.6));
+  const rand = mulberry32(b.id * 97 + simEpoch * 733 + 11);
+  const isClosed = mulberry32(b.id * 31 + 13)() < (simEpoch % 2 === 0 ? 0.035 : 0.02);
+  if(isClosed){
+    return { total, occupied: total, pct: 100, status:'closed' };
+  }
+  const pct = Math.round(rand() * 100);
+  let status = 'ok';
+  if(pct >= 90) status = 'full';
+  else if(pct >= 65) status = 'warn';
+  const occupied = Math.min(total, Math.round(total * pct/100));
+  return { total, occupied, pct, status };
+}
+
+function refreshOccupancy(){
+  buildings.forEach(b=>{ b.occ = computeOccupancy(b); });
+}
+refreshOccupancy();
+
+function haversine(lat1,lng1,lat2,lng2){
+  const R = 6371000, toRad = d=>d*Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
 
 
 function buildingSVG(b){
@@ -129,15 +177,20 @@ function pinIcon(color){
   });
 }
 
-const markers = {};
-buildings.forEach(b=>{
-  const marker = L.marker([b.lat,b.lng], { icon: pinIcon(TYPE_META[b.type].color) }).addTo(map);
+function popupHTML(b){
   const gmaps = `https://www.google.com/maps?q=${b.lat},${b.lng}`;
-  marker.bindPopup(`
+  return `
     <div class="popup-title">${b.lot}</div>
     <div class="popup-sub">${b.name} &middot; พิกัดค่าประมาณ</div>
     <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener">เปิดใน Google Maps →</a>
-  `);
+  `;
+}
+
+const markers = {};
+buildings.forEach(b=>{
+  const marker = L.marker([b.lat,b.lng], { icon: pinIcon(TYPE_META[b.type].color) }).addTo(map);
+  marker.bindPopup(popupHTML(b));
+  marker.on('click', ()=> selectBuilding(b.id, { closeDropdowns:false, fly:false }));
   markers[b.id] = marker;
 });
 
@@ -158,6 +211,36 @@ function matchesQuery(b, q){
   return b.name.toLowerCase().includes(q) || b.lot.toLowerCase().includes(q);
 }
 
+function badgesHTML(b){
+  const accessBadge = b.accessType==='staff'
+    ? `<span class="badge staff">อื่นๆ</span>`
+    : `<span class="badge">👤 นักศึกษา/ผู้มาติดต่อ</span>`;
+  const accessible = `<span class="badge access">♿ ${b.accessibleSlots} ช่อง</span>`;
+  return `<div class="badges">${accessBadge}${accessible}</div>`;
+}
+
+// หาลานจอดสำรองที่ใกล้ที่สุดซึ่งยังว่าง เมื่อลานที่เลือก "เต็ม" หรือ "ปิดปรับปรุง"
+function findAlternative(b){
+  return buildings
+    .filter(x=> x.id!==b.id && (x.occ.status==='ok' || x.occ.status==='warn'))
+    .map(x=> ({ b:x, dist: haversine(b.lat,b.lng,x.lat,x.lng) }))
+    .sort((a,c)=> a.dist-c.dist)[0];
+}
+
+function suggestBoxHTML(b){
+  if(b.occ.status!=='full' && b.occ.status!=='closed') return '';
+  const alt = findAlternative(b);
+  if(!alt) return '';
+  const distText = alt.dist >= 1000 ? (alt.dist/1000).toFixed(1)+' กม.' : Math.round(alt.dist)+' ม.';
+  const verb = b.occ.status==='closed' ? 'ปิดปรับปรุงอยู่' : 'เต็มแล้ว';
+  return `
+    <div class="suggest-box">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+      <span>${b.lot} ${verb} ขอแนะนำ <b>${alt.b.lot}</b> (ห่างออกไปประมาณ ${distText})</span>
+      <button data-fly="${alt.b.id}">ไปลานจอดนี้</button>
+    </div>`;
+}
+
 function render(){
   const q = currentQuery.trim().toLowerCase();
   let list = buildings.filter(b=>{
@@ -174,8 +257,9 @@ function render(){
 
   cardList.innerHTML = list.map((b,i)=>{
     const gmaps = `https://www.google.com/maps?q=${b.lat},${b.lng}`;
+    const selected = b.id===selectedId;
     return `
-    <div class="card ${b.id===selectedId?'selected':''}" data-id="${b.id}" style="animation-delay:${Math.min(i*25,300)}ms">
+    <div class="card ${selected?'selected':''}" data-id="${b.id}" style="animation-delay:${Math.min(i*25,300)}ms">
       <div class="thumb">
         <img src="gaygustgym/560000008228601${b.id}.jpg" alt="${b.name}" loading="lazy" onerror="this.closest('.thumb').classList.add('no-photo')">
         <div class="thumb-fallback">${buildingSVG(b)}</div>
@@ -186,20 +270,23 @@ function render(){
           ${tagHTML(b.type)}
         </div>
         <div class="lot-name">${b.lot}</div>
+        ${badgesHTML(b)}
         <div class="card-actions">
           <button class="btn-ghost" data-fly="${b.id}">ดูบนแผนที่</button>
+          <button class="btn-locate" data-locate="${b.id}">📍 นำทางจากตำแหน่งฉัน</button>
           <a class="btn-map" href="${gmaps}" target="_blank" rel="noopener">เปิด Google Maps</a>
         </div>
       </div>
-    </div>`;
+    </div>
+    ${selected ? suggestBoxHTML(b) : ''}`;
   }).join('');
 }
 
-function selectBuilding(id, {closeDropdowns=true} = {}){
+function selectBuilding(id, {closeDropdowns=true, fly=true} = {}){
   selectedId = id;
   const b = buildings.find(x=>x.id===id);
   if(!b) return;
-  map.flyTo([b.lat,b.lng], 18, { duration:0.8 });
+  if(fly) map.flyTo([b.lat,b.lng], 18, { duration:0.8 });
   markers[id].openPopup();
   render();
   if(closeDropdowns){ closeAC(acTopEl); closeAC(acHeroEl); }
@@ -208,7 +295,41 @@ function selectBuilding(id, {closeDropdowns=true} = {}){
   }
 }
 
+function openLiveRoute(b, btn){
+  const destination = `${b.lat},${b.lng}`;
+  const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+  if(!navigator.geolocation){
+    window.open(fallbackUrl, '_blank', 'noopener');
+    return;
+  }
+  if(btn) btn.classList.add('loading');
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const origin = `${pos.coords.latitude},${pos.coords.longitude}`;
+      window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`, '_blank', 'noopener');
+      if(btn) btn.classList.remove('loading');
+    },
+    ()=>{
+    
+      window.open(fallbackUrl, '_blank', 'noopener');
+      if(btn) btn.classList.remove('loading');
+    },
+    { timeout:8000 }
+  );
+}
+
 cardList.addEventListener('click', (e)=>{
+  const locateBtn = e.target.closest('[data-locate]');
+  if(locateBtn){
+    const b = buildings.find(x=>x.id===Number(locateBtn.dataset.locate));
+    if(b) openLiveRoute(b, locateBtn);
+    return;
+  }
+  const flyBtn = e.target.closest('[data-fly]');
+  if(flyBtn){
+    selectBuilding(Number(flyBtn.dataset.fly));
+    return;
+  }
   const card = e.target.closest('.card');
   if(!card) return;
   selectBuilding(Number(card.dataset.id));
