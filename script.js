@@ -62,10 +62,7 @@ const STATUS_META = {
 
 document.getElementById('statTotal').textContent = buildings.length;
 
-/* ================= mock live occupancy =================
-   ไม่มีเซ็นเซอร์จริง ระบบจึงจำลองความหนาแน่นของแต่ละลานจอดแบบ deterministic
-   (สุ่มแบบมี seed) เพื่อสาธิต UI เท่านั้น — เมื่อมีข้อมูลจริงจาก API ให้แทนที่
-   ฟังก์ชัน computeOccupancy() ด้วยการเรียก API แทน */
+
 let simEpoch = 0; // เพิ่มค่านี้ทุกครั้งที่กด "อัปเดตข้อมูล" เพื่อสุ่มค่าตำแหน่งใหม่
 
 function mulberry32(seed){
@@ -219,7 +216,7 @@ function badgesHTML(b){
   return `<div class="badges">${accessBadge}${accessible}</div>`;
 }
 
-// หาลานจอดสำรองที่ใกล้ที่สุดซึ่งยังว่าง เมื่อลานที่เลือก "เต็ม" หรือ "ปิดปรับปรุง"
+
 function findAlternative(b){
   return buildings
     .filter(x=> x.id!==b.id && (x.occ.status==='ok' || x.occ.status==='warn'))
@@ -232,7 +229,7 @@ function suggestBoxHTML(b){
   const alt = findAlternative(b);
   if(!alt) return '';
   const distText = alt.dist >= 1000 ? (alt.dist/1000).toFixed(1)+' กม.' : Math.round(alt.dist)+' ม.';
-  const verb = b.occ.status==='closed' ? 'ปิดปรับปรุงอยู่' : 'เต็มแล้ว';
+  const verb = b.occ.status==='closed' ? 'ปิดปรับปรุงอยู่' : 'ถ้าเต็มแล้ว';
   return `
     <div class="suggest-box">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
